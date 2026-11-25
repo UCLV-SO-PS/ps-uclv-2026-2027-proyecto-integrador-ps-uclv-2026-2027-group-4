@@ -1,14 +1,20 @@
-# Makefile — base del repositorio: libmonitor.a (G1, machado-a-g1-libmonitor.md)
+# Makefile — libmonitor.a (G1) y binarios server/client (G2, felix-b-g2-protocolo.md)
 
 CC = gcc
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 
 OBJS = bd.o episodios.o formato.o
 
-all: libmonitor.a
+all: libmonitor.a server client
 
 libmonitor.a: $(OBJS)
 	ar rcs $@ $(OBJS)
+
+server: server.o libmonitor.a
+	$(CC) $(CFLAGS) -o $@ server.o -L. -lmonitor
+
+client: client.o
+	$(CC) $(CFLAGS) -o $@ client.o
 
 %.o: %.c monitor.h
 	$(CC) $(CFLAGS) -c $< -o $@
