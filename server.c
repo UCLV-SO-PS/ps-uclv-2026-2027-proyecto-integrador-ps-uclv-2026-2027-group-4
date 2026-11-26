@@ -18,6 +18,14 @@
 #define TAM_CODIGO 32
 #define TAM_BLOQUE 256
 
+/* Aviso que el hijo envia al padre por la tuberia sin nombre. Mide bastante
+   menos que PIPE_BUF, asi que un unico write() es atomico y dos hijos no
+   pueden intercalar sus mensajes. */
+struct aviso {
+    pid_t pid;
+    char ip[INET_ADDRSTRLEN];
+};
+
 /* Escribe todo el buffer, reintentando en EINTR y cubriendo escrituras
    parciales. Devuelve 0 si escribio todo, -1 en error. */
 static int write_all(int fd, const char *buf, size_t len)
@@ -120,6 +128,68 @@ static int crear_escucha(void)
     }
 
     return fd;
+}
+
+/* Crea la tuberia sin nombre que usan los hijos para avisar al padre.
+   El padre conserva los dos extremos abiertos mientras el servidor vive. */
+static void crear_tuberia(int piper[2])
+{
+    if (pipe(piper) < 0) {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
+}
+
+/* Ejecutado en el hijo: envia al padre su propio PID y la IP del cliente.
+   La conversion de la direccion se hace aca, no en el padre. */
+static void avisar_padre(int fd, const struct sockaddr_in *cliente)
+{
+    struct aviso a;
+    ssize_t escrito;
+
+    memset(&a, 0, sizeof a);
+    a.pid = getpid();
+
+    if (inet_ntop(AF_INET, &cliente->sin_addr, a.ip, sizeof a.ip) == NULL) {
+        perror("inet_ntop");
+        return;
+    }
+
+    escrito = write(fd, &a, sizeof a);
+    if (escrito < 0) {
+        perror("write(aviso)");
+        return;
+    }
+    if ((size_t)escrito != sizeof a) {
+        fprintf(stderr, "aviso truncado: %zd de %zu bytes\n",
+                escrito, sizeof a);
+    }
+}
+
+/* Ejecutado en el padre: lee un aviso completo de la tuberia y lo imprime
+   junto al PID del hijo que lo envio. */
+static void leer_aviso(int fd)
+{
+    struct aviso a;
+    ssize_t leido = read(fd, &a, sizeof a);
+
+    if (leido < 0) {
+        if (errno != EINTR) {
+            perror("read(aviso)");
+        }
+        return;
+    }
+    if (leido == 0) {
+        return;
+    }
+    if ((size_t)leido != sizeof a) {
+        fprintf(stderr, "aviso truncado: %zd de %zu bytes\n",
+                leido, sizeof a);
+        return;
+    }
+
+    printf("IP %s PID %ld\n", a.ip, (long)a.pid);
+    fflush(stdout);
 }
 
 /* Atiende una unica conexion: lee el codigo, busca el episodio y
@@ -252,6 +322,7 @@ static void prueba_automatica(void)
 int main(int argc, char **argv)
 {
     int escucha;
+    int piper[2];
 
     if (argc > 1) {
         if (strcmp(argv[1], "--test-run") == 0) {
@@ -261,16 +332,18 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    /* La tuberia se crea antes del bucle y no existe en --test-run: el modo
+       de prueba no tiene hijos, asi que esperar un aviso lo colgaria. */
+    crear_tuberia(piper);
     escucha = crear_escucha();
 
-    printf("Servidor escuchando en el puerto %d\n", PUERTO);
-    fflush(stdout);
-
     for (;;) {
+        struct sockaddr_in cliente;
+        socklen_t tam = sizeof cliente;
         int conexion;
         pid_t pid;
 
-        conexion = accept(escucha, NULL, NULL);
+        conexion = accept(escucha, (struct sockaddr *)&cliente, &tam);
         if (conexion < 0) {
             if (errno == EINTR) {
                 continue;
@@ -287,18 +360,24 @@ int main(int argc, char **argv)
         }
 
         if (pid == 0) {
-            /* Hijo: no necesita el socket de escucha y atiende una sola
+            /* Hijo: no necesita el socket de escucha ni el extremo de
+               lectura de la tuberia. Avisa al padre y atiende una sola
                conexion. _exit evita vaciar dos veces los buffers de stdio
                heredados del padre. */
             close(escucha);
+            close(piper[0]);
+            avisar_padre(piper[1], &cliente);
+            close(piper[1]);
             atender_cliente(conexion);
             shutdown(conexion, SHUT_WR);
             close(conexion);
             _exit(EXIT_SUCCESS);
         }
 
-        /* Padre: cierra la conexion aceptada y vuelve a aceptar. */
+        /* Padre: cierra la conexion aceptada, lee el aviso del hijo recien
+           creado y vuelve a aceptar. */
         close(conexion);
+        leer_aviso(piper[0]);
     }
 
     return EXIT_SUCCESS;
