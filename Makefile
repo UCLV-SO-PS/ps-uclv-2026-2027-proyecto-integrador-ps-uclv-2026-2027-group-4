@@ -12,9 +12,10 @@ LIB = libmonitor.a
 BINARIOS = server client
 
 LIB_OBJS = $(BUILD)/bd.o $(BUILD)/episodios.o $(BUILD)/formato.o
-SERVER_OBJS = $(BUILD)/server.o
-CLIENT_OBJS = $(BUILD)/client.o
-DEPS = $(LIB_OBJS:.o=.d) $(SERVER_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d)
+COMUNES_OBJS = $(BUILD)/protocolo.o
+SERVER_OBJS = $(BUILD)/server.o $(COMUNES_OBJS)
+CLIENT_OBJS = $(BUILD)/client.o $(COMUNES_OBJS)
+DEPS = $(sort $(LIB_OBJS:.o=.d) $(SERVER_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d))
 
 .PHONY: all check clean
 

@@ -10,33 +10,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define PUERTO 6666
-#define LONGITUD_CODIGO 6
+#include "protocolo.h"
+
 #define TAM_LINEA 64
 #define TAM_LECTURA 256
-
-/* Escribe todo el buffer, reintentando en EINTR y cubriendo escrituras
-   parciales. Devuelve 0 si escribio todo, -1 en error. */
-static int write_all(int fd, const char *buf, size_t len)
-{
-    size_t enviado = 0;
-
-    while (enviado < len) {
-        ssize_t n = write(fd, buf + enviado, len - enviado);
-
-        if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return -1;
-        }
-        if (n == 0) {
-            return -1;
-        }
-        enviado += (size_t)n;
-    }
-    return 0;
-}
 
 static int conectar(void)
 {
@@ -78,7 +55,7 @@ static int consultar(const char *codigo)
     }
 
     snprintf(solicitud, sizeof solicitud, "%s\n", codigo);
-    if (write_all(fd, solicitud, strlen(solicitud)) < 0) {
+    if (enviar_todo(fd, solicitud, strlen(solicitud)) < 0) {
         perror("write");
         close(fd);
         return -1;

@@ -14,10 +14,9 @@
 #include <unistd.h>
 
 #include "monitor.h"
+#include "protocolo.h"
 
-#define PUERTO 6666
 #define BACKLOG 16
-#define LONGITUD_CODIGO 6
 #define TAM_CODIGO 32
 #define TAM_BLOQUE 256
 
@@ -28,32 +27,6 @@ struct aviso {
     pid_t pid;
     char ip[INET_ADDRSTRLEN];
 };
-
-/* Escribe todo el buffer, reintentando en EINTR y cubriendo escrituras
-   parciales. Devuelve 0 si escribio todo, -1 en error. */
-static int write_all(int fd, const char *buf, size_t len)
-{
-    size_t enviado = 0;
-
-    while (enviado < len) {
-        ssize_t n = write(fd, buf + enviado, len - enviado);
-
-        if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            /* Con SIGPIPE ignorada, un cliente que corta antes de leer se
-               manifiesta como EPIPE: es el cierre normal del hijo, no un
-               error del servidor. */
-            return -1;
-        }
-        if (n == 0) {
-            return -1;
-        }
-        enviado += (size_t)n;
-    }
-    return 0;
-}
 
 /* Lee un codigo de episodio hasta '\n' o hasta llenar el buffer.
    Tolera terminaciones "\r\n" y exige exactamente seis caracteres.
@@ -252,25 +225,25 @@ static void atender_cliente(int fd)
 
     if (read_code(fd, codigo, sizeof codigo) < 0) {
         respuesta = formato_error();
-        (void)write_all(fd, respuesta, strlen(respuesta));
+        (void)enviar_todo(fd, respuesta, strlen(respuesta));
         return;
     }
 
     episodio = bd_buscar(codigo);
     if (episodio == NULL) {
         respuesta = formato_error();
-        (void)write_all(fd, respuesta, strlen(respuesta));
+        (void)enviar_todo(fd, respuesta, strlen(respuesta));
         return;
     }
 
     if (formato_respuesta(episodio, bloque, sizeof bloque) < 0) {
         respuesta = formato_error();
-        (void)write_all(fd, respuesta, strlen(respuesta));
+        (void)enviar_todo(fd, respuesta, strlen(respuesta));
         return;
     }
 
     largo = strlen(bloque);
-    (void)write_all(fd, bloque, largo);
+    (void)enviar_todo(fd, bloque, largo);
 }
 
 /* Acepta una conexion y la entrega a un hijo recien creado. El padre cierra
@@ -362,7 +335,7 @@ static void prueba_automatica(void)
         exit(EXIT_FAILURE);
     }
 
-    if (write_all(cliente, "S01E01\n", 7) < 0) {
+    if (enviar_todo(cliente, "S01E01\n", 7) < 0) {
         perror("test-run: write");
         close(conexion);
         close(cliente);
