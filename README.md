@@ -38,9 +38,12 @@ make clean && make all
 Otros objetivos:
 
 ```bash
-make check   # compila y ejecuta tests/lib_check
-make clean   # borra *.o, libmonitor.a, server, client y tests/lib_check
+make check   # compila y ejecuta build/lib_check
+make clean   # borra build/, libmonitor.a, server y client
 ```
+
+Los objetos intermedios van a `build/`. En la raíz quedan solo los entregables
+que exige la asignatura: `libmonitor.a`, `server` y `client`.
 
 ## Ejecución
 
@@ -148,10 +151,11 @@ monitor.h       contrato público de la biblioteca
 bd.c            tabla de episodios y validación
 episodios.c     búsqueda por código
 formato.c       formateo de respuesta y error
-libmonitor.a    biblioteca estática (generada)
+libmonitor.a    biblioteca estática (generada, raíz)
 server.c        servidor concurrente TCP
 client.c        cliente/consola de prueba
 tests/          comprobaciones de la biblioteca
+build/          objetos y binario de prueba (generado, no se versiona)
 ```
 
 ## Decisiones de diseño
