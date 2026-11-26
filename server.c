@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -225,6 +226,49 @@ static void atender_cliente(int fd)
     (void)write_all(fd, bloque, largo);
 }
 
+/* Acepta una conexion y la entrega a un hijo recien creado. El padre cierra
+   su copia del descriptor aceptado y vuelve al bucle; el hijo avisa al padre
+   por la tuberia y atiende la conexion. */
+static void aceptar_conexion(int escucha, int piper[2])
+{
+    struct sockaddr_in cliente;
+    socklen_t tam = sizeof cliente;
+    int conexion;
+    pid_t pid;
+
+    conexion = accept(escucha, (struct sockaddr *)&cliente, &tam);
+    if (conexion < 0) {
+        if (errno != EINTR) {
+            perror("accept");
+        }
+        return;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        close(conexion);
+        return;
+    }
+
+    if (pid == 0) {
+        /* Hijo: no necesita el socket de escucha ni el extremo de lectura
+           de la tuberia. Avisa al padre y atiende una sola conexion.
+           _exit evita vaciar dos veces los buffers de stdio heredados. */
+        close(escucha);
+        close(piper[0]);
+        avisar_padre(piper[1], &cliente);
+        close(piper[1]);
+        atender_cliente(conexion);
+        shutdown(conexion, SHUT_WR);
+        close(conexion);
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Padre: cierra la conexion aceptada y vuelve a multiplexar. */
+    close(conexion);
+}
+
 /* Modo --test-run: valida la base de datos, levanta el socket, se conecta
    a si mismo y comprueba la respuesta completa de S01E01 sin usar fork().
    Termina con 0 si todo funciona y con distinto de 0 si algo falla. */
@@ -323,6 +367,7 @@ int main(int argc, char **argv)
 {
     int escucha;
     int piper[2];
+    int maxfd;
 
     if (argc > 1) {
         if (strcmp(argv[1], "--test-run") == 0) {
@@ -336,48 +381,34 @@ int main(int argc, char **argv)
        de prueba no tiene hijos, asi que esperar un aviso lo colgaria. */
     crear_tuberia(piper);
     escucha = crear_escucha();
+    maxfd = (escucha > piper[0]) ? escucha : piper[0];
 
     for (;;) {
-        struct sockaddr_in cliente;
-        socklen_t tam = sizeof cliente;
-        int conexion;
-        pid_t pid;
+        fd_set lectores;
+        int listos;
 
-        conexion = accept(escucha, (struct sockaddr *)&cliente, &tam);
-        if (conexion < 0) {
+        FD_ZERO(&lectores);
+        FD_SET(escucha, &lectores);
+        FD_SET(piper[0], &lectores);
+
+        listos = select(maxfd + 1, &lectores, NULL, NULL, NULL);
+        if (listos < 0) {
             if (errno == EINTR) {
                 continue;
             }
-            perror("accept");
+            perror("select");
             continue;
         }
 
-        pid = fork();
-        if (pid < 0) {
-            perror("fork");
-            close(conexion);
-            continue;
+        /* Primero los avisos: el padre imprime la IP y el PID del hijo
+           antes de que el cliente reciba su respuesta. */
+        if (FD_ISSET(piper[0], &lectores)) {
+            leer_aviso(piper[0]);
         }
 
-        if (pid == 0) {
-            /* Hijo: no necesita el socket de escucha ni el extremo de
-               lectura de la tuberia. Avisa al padre y atiende una sola
-               conexion. _exit evita vaciar dos veces los buffers de stdio
-               heredados del padre. */
-            close(escucha);
-            close(piper[0]);
-            avisar_padre(piper[1], &cliente);
-            close(piper[1]);
-            atender_cliente(conexion);
-            shutdown(conexion, SHUT_WR);
-            close(conexion);
-            _exit(EXIT_SUCCESS);
+        if (FD_ISSET(escucha, &lectores)) {
+            aceptar_conexion(escucha, piper);
         }
-
-        /* Padre: cierra la conexion aceptada, lee el aviso del hijo recien
-           creado y vuelve a aceptar. */
-        close(conexion);
-        leer_aviso(piper[0]);
     }
 
     return EXIT_SUCCESS;
