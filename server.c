@@ -3,12 +3,14 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "monitor.h"
@@ -40,6 +42,9 @@ static int write_all(int fd, const char *buf, size_t len)
             if (errno == EINTR) {
                 continue;
             }
+            /* Con SIGPIPE ignorada, un cliente que corta antes de leer se
+               manifiesta como EPIPE: es el cierre normal del hijo, no un
+               error del servidor. */
             return -1;
         }
         if (n == 0) {
@@ -137,6 +142,48 @@ static void crear_tuberia(int piper[2])
 {
     if (pipe(piper) < 0) {
         perror("pipe");
+        exit(EXIT_FAILURE);
+    }
+}
+
+/* Handler de SIGCHLD: solo cosecha. No hace printf ni toca logica de negocio
+   porque no es async-signal-safe y bloquearia el accept(). waitpid va en
+   bucle porque pueden haber terminado varios hijos entre dos senales. */
+static void cosechar_hijos(int signo)
+{
+    int guardado = errno;
+
+    (void)signo;
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+        /* nada: el handler no tiene otra responsabilidad */
+    }
+    errno = guardado;
+}
+
+/* Registra las acciones de senal del slice antes del bucle: SIGINT y SIGPIPE
+   ignoradas, SIGCHLD cosechando cada hijo que termina. Sin SA_RESTART a
+   proposito: select() se interrumpe igual y el EINTR se reintenta a mano. */
+static void instalar_manejadores(void)
+{
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof sa);
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    sa.sa_handler = SIG_IGN;
+    if (sigaction(SIGINT, &sa, NULL) < 0) {
+        perror("sigaction(SIGINT)");
+        exit(EXIT_FAILURE);
+    }
+    if (sigaction(SIGPIPE, &sa, NULL) < 0) {
+        perror("sigaction(SIGPIPE)");
+        exit(EXIT_FAILURE);
+    }
+
+    sa.sa_handler = cosechar_hijos;
+    if (sigaction(SIGCHLD, &sa, NULL) < 0) {
+        perror("sigaction(SIGCHLD)");
         exit(EXIT_FAILURE);
     }
 }
@@ -379,6 +426,7 @@ int main(int argc, char **argv)
 
     /* La tuberia se crea antes del bucle y no existe en --test-run: el modo
        de prueba no tiene hijos, asi que esperar un aviso lo colgaria. */
+    instalar_manejadores();
     crear_tuberia(piper);
     escucha = crear_escucha();
     maxfd = (escucha > piper[0]) ? escucha : piper[0];
