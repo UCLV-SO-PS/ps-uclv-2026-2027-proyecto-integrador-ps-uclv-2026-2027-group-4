@@ -5,8 +5,8 @@ que atiende consultas de episodios de *A Knight of the Seven Kingdoms* en el
 puerto **6666**, con arquitectura cliente-servidor y un proceso hijo por
 conexión.
 
-> Estado: G3 — IPC por tubería y manejo de señales. La documentación final, las
-> capturas y los artefactos regenerados se completan en G4 (`feature/testing`).
+> Estado: entrega final. La documentación, las capturas y los artefactos
+> regenerados corresponden al cierre del proyecto.
 
 ## Integrantes
 
@@ -21,7 +21,9 @@ conexión.
 - Linux (se usan `fork`, `pipe`, `select`, sockets POSIX y señales).
 - `gcc` con soporte C11.
 - `make`.
-- Opcional para pruebas manuales: `netcat` (`nc`).
+- `ar` de binutils.
+- Opcional para pruebas manuales: `netcat` (`nc`). El script de aceptación no lo
+  necesita: habla el protocolo con `/dev/tcp` de bash.
 
 ## Compilación
 
@@ -38,8 +40,9 @@ make clean && make all
 Otros objetivos:
 
 ```bash
-make check   # compila y ejecuta build/lib_check
-make clean   # borra build/, libmonitor.a, server y client
+make check        # compila y ejecuta build/lib_check
+make clean        # borra build/, libmonitor.a, server y client
+scripts/acceptance.sh   # verificación de aceptación completa
 ```
 
 Los objetos intermedios van a `build/`. En la raíz quedan solo los entregables
@@ -81,11 +84,13 @@ Cliente:
 ./client            # modo interactivo; se sale con 'salir' o Ctrl+D
 ```
 
-Prueba directa del protocolo con `netcat`:
+Prueba directa del protocolo con `netcat`, si está instalado:
 
 ```bash
 printf 'S01E05\n' | nc 127.0.0.1 6666
 ```
+
+Sin `netcat`, el mismo diálogo con el cliente o con el script de aceptación.
 
 ## Protocolo
 
@@ -114,8 +119,13 @@ Error, una línea:
 ERROR: episodio no encontrado
 ```
 
-El bloque lo genera la biblioteca, no `server.c`. Este formato no cambia en los
-siguientes slices: el script de aceptación de G4 compara contra él.
+El bloque lo genera la biblioteca, no `server.c`. La biblioteca formatea el
+registro y no cierra la última línea; el servidor añade el `\n` final que falte
+antes de cerrar el socket, para que cualquier consumidor que lea por líneas
+reciba el último campo terminado. El cliente ya no compensa nada.
+
+Este formato no cambia en los siguientes slices: `scripts/acceptance.sh` compara
+contra él, incluido el byte final.
 
 ## Prueba automática (`--test-run`)
 
@@ -152,9 +162,13 @@ bd.c            tabla de episodios y validación
 episodios.c     búsqueda por código
 formato.c       formateo de respuesta y error
 libmonitor.a    biblioteca estática (generada, raíz)
+protocolo.h     constantes y helper compartidos por cliente y servidor
+protocolo.c     envío completo sobre un socket
 server.c        servidor concurrente TCP
 client.c        cliente/consola de prueba
 tests/          comprobaciones de la biblioteca
+scripts/        script de aceptación de extremo a extremo
+screenshot/     capturas de pantalla del funcionamiento
 build/          objetos y binario de prueba (generado, no se versiona)
 ```
 
@@ -182,9 +196,14 @@ build/          objetos y binario de prueba (generado, no se versiona)
 - **`SIGPIPE` ignorada.** Si un cliente corta antes de leer, `write()` devuelve
   `EPIPE` y el hijo cierra normalmente en lugar de morir por señal.
 - **`SO_REUSEADDR`.** Permite reiniciar el servidor sin esperar `TIME_WAIT`.
-- **Lectura y escritura completas.** `read_code()` y `write_all()` cubren
+- **Lectura y escritura completas.** `read_code()` y `enviar_todo()` cubren
   lecturas/escrituras parciales y `EINTR`; no se asume que un `read()` o
-  `write()` entrega todo el bloque.
+  `write()` entrega todo el bloque. `enviar_todo()` vive en `protocolo.c` y lo
+  comparten los dos binarios, igual que `PUERTO` y `LONGITUD_CODIGO`.
+- **El transporte cierra la línea.** La biblioteca formatea el registro y para en
+  el último campo; el servidor añade el `\n` que falte. Así la biblioteca no
+  conoce el socket y un consumidor que lea por líneas no recibe un campo
+  truncado.
 - **Formato centralizado.** El servidor nunca arma el texto de respuesta: lo
   produce `libmonitor.a`.
 - **`--test-run` sin `fork()` ni tubería.** La prueba se conecta al propio socket
@@ -212,3 +231,43 @@ for i in $(seq 20); do ./client S01E03 >/dev/null; done
 ps -eo stat,comm | grep defunct    # sin hijos del servidor
 kill -TERM %1
 ```
+
+## Verificación de aceptación
+
+```bash
+scripts/acceptance.sh
+```
+
+El script compila desde cero y recorre los nueve escenarios de la definición de
+terminado sobre los binarios reales, hablando el protocolo por `/dev/tcp` (no
+necesita `netcat`):
+
+1. `make clean && make all` sin warnings, con los tres entregables en la raíz y
+   los tres objetos empaquetados en `libmonitor.a`.
+2. `./server --test-run` termina con `0` con el puerto libre.
+3. Consulta válida: las cuatro líneas esperadas, la línea `IP … PID …` en la
+   consola del padre y la respuesta cruda terminada en `\n`.
+4. Código inexistente y solicitudes crudas malformadas (`S0`, `S01E01X`,
+   minúsculas, línea vacía) devuelven el error; el cliente rechaza longitudes
+   distintas de 6 antes de enviar.
+5. Diez clientes concurrentes obtienen respuesta, el padre imprime diez líneas
+   IP/PID y no queda ningún hijo zombi.
+6. `SIGINT` no detiene el servidor y este sigue atendiendo.
+7. Un cliente que corta sin leer no mata al servidor.
+8. `--test-run` falla con el puerto ocupado.
+9. El servidor reinicia inmediatamente después de `SIGTERM`.
+
+Termina con `0` solo si todo pasa; con `1` e informa la primera comprobación que
+falló.
+
+## Capturas
+
+La carpeta [`screenshot/`](screenshot/) muestra el funcionamiento:
+
+| Archivo | Contenido |
+| --- | --- |
+| `01-servidor-y-clientes.png` | El servidor atendiendo varias consultas concurrentes y las líneas `IP … PID …` |
+| `02-consulta-valida.png` | Respuesta completa de un episodio |
+| `03-codigo-invalido.png` | Respuesta de error para un código inexistente |
+| `04-prueba-automatica.png` | `./server --test-run` con código de salida `0` |
+| `05-aceptacion.png` | `scripts/acceptance.sh` con todas las comprobaciones en OK |
