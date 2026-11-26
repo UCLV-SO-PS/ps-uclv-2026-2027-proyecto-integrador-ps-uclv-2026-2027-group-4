@@ -1,3 +1,5 @@
 odd/
 .atl/
 git-strategy/
+*.o
+*.exe
