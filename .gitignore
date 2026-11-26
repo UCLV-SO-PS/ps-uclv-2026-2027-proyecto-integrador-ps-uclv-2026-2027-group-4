@@ -3,3 +3,4 @@ odd/
 git-strategy/
 *.o
 *.exe
+build/
