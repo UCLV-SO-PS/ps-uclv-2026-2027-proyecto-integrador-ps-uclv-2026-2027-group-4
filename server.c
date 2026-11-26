@@ -213,6 +213,22 @@ static void leer_aviso(int fd)
     fflush(stdout);
 }
 
+/* Envia una respuesta de texto y garantiza que termine en '\n'. La biblioteca
+   entrega el bloque sin salto final porque solo formatea el registro; cerrar la
+   ultima linea es responsabilidad del transporte. Asi cualquier consumidor que
+   lea por lineas, no solo ./client, recibe el campo completo. */
+static void responder(int fd, const char *texto)
+{
+    size_t largo = strlen(texto);
+
+    if (largo > 0 && enviar_todo(fd, texto, largo) < 0) {
+        return;
+    }
+    if (largo == 0 || texto[largo - 1] != '\n') {
+        (void)enviar_todo(fd, "\n", 1);
+    }
+}
+
 /* Atiende una unica conexion: lee el codigo, busca el episodio y
    responde con el bloque formateado o con la linea de error. */
 static void atender_cliente(int fd)
@@ -220,30 +236,24 @@ static void atender_cliente(int fd)
     char codigo[TAM_CODIGO];
     char bloque[TAM_BLOQUE];
     const episodio_t *episodio;
-    const char *respuesta;
-    size_t largo;
 
     if (read_code(fd, codigo, sizeof codigo) < 0) {
-        respuesta = formato_error();
-        (void)enviar_todo(fd, respuesta, strlen(respuesta));
+        responder(fd, formato_error());
         return;
     }
 
     episodio = bd_buscar(codigo);
     if (episodio == NULL) {
-        respuesta = formato_error();
-        (void)enviar_todo(fd, respuesta, strlen(respuesta));
+        responder(fd, formato_error());
         return;
     }
 
     if (formato_respuesta(episodio, bloque, sizeof bloque) < 0) {
-        respuesta = formato_error();
-        (void)enviar_todo(fd, respuesta, strlen(respuesta));
+        responder(fd, formato_error());
         return;
     }
 
-    largo = strlen(bloque);
-    (void)enviar_todo(fd, bloque, largo);
+    responder(fd, bloque);
 }
 
 /* Acepta una conexion y la entrega a un hijo recien creado. El padre cierra

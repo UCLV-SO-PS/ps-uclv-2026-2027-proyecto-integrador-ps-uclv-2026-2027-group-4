@@ -85,6 +85,21 @@ crudo_y_corto() {
     exec 3<&- 3>&-
 }
 
+# Envía bytes crudos y guarda la respuesta tal cual, sin que el shell se coma
+# los saltos de línea finales.
+crudo_a_archivo() {
+    local datos="$1" destino="$2"
+    exec 3<>"/dev/tcp/127.0.0.1/$PUERTO" || return 1
+    printf '%b' "$datos" >&3
+    cat <&3 > "$destino"
+    exec 3<&- 3>&-
+}
+
+# Imprime el último byte de un archivo con la notación de od, por ejemplo \n.
+ultimo_byte() {
+    tail -c 1 "$1" 2>/dev/null | od -An -c | tr -d ' \n'
+}
+
 lineas_ip() { grep -c '^IP ' "$LOG" 2>/dev/null || echo 0; }
 
 zombis() {
@@ -177,6 +192,30 @@ if arrancar_servidor; then
     else
         mal "el padre no imprime la línea IP/PID"
         nota "$(cat "$LOG")"
+    fi
+
+    if crudo_a_archivo 'S01E01\n' "$TMP/respuesta.bin"; then
+        if [ "$(ultimo_byte "$TMP/respuesta.bin")" = '\n' ]; then
+            ok "la respuesta cruda termina en salto de línea"
+        else
+            mal "la respuesta cruda no termina en salto de línea"
+            nota "$(cat "$TMP/respuesta.bin")"
+        fi
+        if [ "$(grep -c '' "$TMP/respuesta.bin")" -eq 4 ]; then
+            ok "la respuesta cruda tiene exactamente 4 líneas"
+        else
+            mal "la respuesta cruda tiene $(grep -c '' "$TMP/respuesta.bin") líneas"
+        fi
+    else
+        mal "no se pudo leer la respuesta cruda"
+    fi
+
+    crudo_a_archivo 'S99E99\n' "$TMP/error.bin"
+    if [ "$(ultimo_byte "$TMP/error.bin")" = '\n' ]; then
+        ok "la línea de error cruda termina en salto de línea"
+    else
+        mal "la línea de error cruda no termina en salto de línea"
+        nota "$(cat "$TMP/error.bin")"
     fi
 else
     mal "el servidor no arranca"

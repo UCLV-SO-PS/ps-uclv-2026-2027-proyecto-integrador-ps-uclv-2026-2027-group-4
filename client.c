@@ -47,7 +47,6 @@ static int consultar(const char *codigo)
     int fd;
     char solicitud[LONGITUD_CODIGO + 2];
     char buf[TAM_LECTURA];
-    int ultimo = '\n';
 
     fd = conectar();
     if (fd < 0) {
@@ -83,14 +82,9 @@ static int consultar(const char *codigo)
             close(fd);
             return -1;
         }
-        ultimo = (unsigned char)buf[n - 1];
     }
 
     close(fd);
-
-    if (ultimo != '\n') {
-        putchar('\n');
-    }
     fflush(stdout);
 
     return 0;
