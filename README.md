@@ -5,8 +5,8 @@ que atiende consultas de episodios de *A Knight of the Seven Kingdoms* en el
 puerto **6666**, con arquitectura cliente-servidor y un proceso hijo por
 conexión.
 
-> Estado: esqueleto de G2. La documentación final, las capturas y los
-> artefactos regenerados se completan en G4 (`feature/testing`).
+> Estado: G3 — IPC por tubería y manejo de señales. La documentación final, las
+> capturas y los artefactos regenerados se completan en G4 (`feature/testing`).
 
 ## Integrantes
 
@@ -50,8 +50,24 @@ Servidor:
 ./server
 ```
 
-El servidor escucha en `0.0.0.0:6666`. Por cada conexión aceptada crea un
-proceso hijo con `fork()` y el padre vuelve a esperar conexiones.
+El servidor escucha en `0.0.0.0:6666` y no imprime nada al arrancar. Por cada
+conexión aceptada crea un proceso hijo con `fork()` y el padre vuelve a
+esperar conexiones.
+
+Antes de atender la solicitud, cada hijo avisa al padre por una tubería sin
+nombre, y el padre imprime una línea por conexión:
+
+```text
+IP 127.0.0.1 PID 4213
+```
+
+`Ctrl+C` **no detiene** el servidor: `SIGINT` está ignorada a propósito. Para
+terminarlo:
+
+```bash
+kill -TERM <pid>
+# o Ctrl+\ en la terminal donde corre
+```
 
 Cliente:
 
@@ -143,23 +159,52 @@ tests/          comprobaciones de la biblioteca
 - **Un hijo por conexión.** El padre solo acepta y hace `fork()`; el hijo cierra
   `listenfd`, atiende una única conexión y termina con `_exit()` para no vaciar
   dos veces los buffers de `stdio` heredados.
+- **Una sola tubería sin nombre, creada antes del bucle.** El padre conserva los
+  dos extremos abiertos: si cerrara el de escritura, cuando no quedaran hijos el
+  extremo de lectura estaría siempre listo en `EOF` y `select()` giraría al 100 %
+  de CPU. El hijo cierra el extremo de lectura y el socket de escucha.
+- **Aviso atómico.** El hijo envía `struct aviso { pid_t pid; char ip[16]; }` con
+  un único `write()`. Mide menos que `PIPE_BUF`, así que dos hijos no pueden
+  intercalar sus mensajes. La conversión con `inet_ntop` se hace en el hijo.
+- **`select()` sobre `{listenfd, piper[0]}`.** El padre no se bloquea esperando
+  el aviso de un hijo: atiende conexiones nuevas y avisos en el mismo bucle. Los
+  avisos se leen primero, así la línea `IP … PID …` sale antes de la respuesta.
+- **`SIGINT` ignorada con `sigaction`.** El servidor se detiene con `SIGTERM` o
+  `SIGQUIT`, no con `Ctrl+C`.
+- **`SIGCHLD` que solo cosecha.** El handler hace
+  `while (waitpid(-1, NULL, WNOHANG) > 0);` y nada más: `printf` y la lógica de
+  negocio no son async-signal-safe. El bucle importa porque pueden terminar
+  varios hijos entre dos señales.
+- **`SIGPIPE` ignorada.** Si un cliente corta antes de leer, `write()` devuelve
+  `EPIPE` y el hijo cierra normalmente en lugar de morir por señal.
 - **`SO_REUSEADDR`.** Permite reiniciar el servidor sin esperar `TIME_WAIT`.
 - **Lectura y escritura completas.** `read_code()` y `write_all()` cubren
   lecturas/escrituras parciales y `EINTR`; no se asume que un `read()` o
   `write()` entrega todo el bloque.
 - **Formato centralizado.** El servidor nunca arma el texto de respuesta: lo
   produce `libmonitor.a`.
-- **`--test-run` sin `fork()`.** La prueba se conecta al propio socket y atiende
-  la conexión de forma síncrona, reutilizando el mismo camino que un cliente
-  real.
+- **`--test-run` sin `fork()` ni tubería.** La prueba se conecta al propio socket
+  y atiende la conexión de forma síncrona, reutilizando el mismo camino que un
+  cliente real. Si creara la tubería, quedaría colgada esperando un aviso que
+  nunca llega.
 
-## Limitaciones conocidas de este slice
+## Concurrencia, IPC y señales
 
-Estas limitaciones son deliberadas y se resuelven en G3 (`feature/concurrencia`):
+Cómo se cumple cada requisito de este slice:
 
-- No se captura `SIGCHLD`: los hijos terminados quedan como `defunct` hasta que
-  el padre termina.
-- No se ignora `SIGINT`: `Ctrl+C` detiene el servidor.
-- No se ignora `SIGPIPE`: si un cliente corta antes de leer, el hijo puede
-  recibir la señal al escribir.
-- No hay tubería: el padre todavía no imprime la IP ni el PID de cada cliente.
+| Requisito | Implementación |
+| --- | --- |
+| El hijo envía la IP al padre por `pipe()` antes de atender | `avisar_padre()` en el hijo, antes de `atender_cliente()` |
+| El padre lee la IP e imprime IP y PID del hijo | `leer_aviso()` en el bucle de `select()` |
+| `SIGINT` ignorada asíncronamente | `sigaction(SIGINT, SIG_IGN)` antes del bucle |
+| `SIGCHLD` con `sigaction` y `waitpid(-1, NULL, WNOHANG)` | handler `cosechar_hijos()` |
+
+Comprobación rápida:
+
+```bash
+./server &
+./client S01E01 & ./client S01E02 & ./client S01E03 & wait   # tres líneas IP/PID
+for i in $(seq 20); do ./client S01E03 >/dev/null; done
+ps -eo stat,comm | grep defunct    # sin hijos del servidor
+kill -TERM %1
+```
