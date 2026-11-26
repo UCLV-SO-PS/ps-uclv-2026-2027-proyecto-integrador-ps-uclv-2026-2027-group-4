@@ -11,6 +11,7 @@ BINARIOS = server client
 LIB_OBJS = $(BUILD)/bd.o $(BUILD)/episodios.o $(BUILD)/formato.o
 SERVER_OBJS = $(BUILD)/server.o
 CLIENT_OBJS = $(BUILD)/client.o
+DEPS = $(LIB_OBJS:.o=.d) $(SERVER_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d)
 
 .PHONY: all check clean
 
@@ -25,8 +26,8 @@ server: $(SERVER_OBJS) $(LIB)
 client: $(CLIENT_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(CLIENT_OBJS)
 
-$(BUILD)/%.o: %.c monitor.h | $(BUILD)
-	$(CC) $(CFLAGS) -I. -c $< -o $@
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) -I. -MMD -MP -c $< -o $@
 
 $(BUILD):
 	mkdir -p $@
@@ -39,3 +40,5 @@ $(BUILD)/lib_check: tests/lib_check.c $(LIB) | $(BUILD)
 
 clean:
 	rm -rf $(BUILD) $(LIB) $(BINARIOS)
+
+-include $(DEPS)
