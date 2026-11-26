@@ -2,7 +2,10 @@
 # Uso: make | make check | make clean
 
 CC = gcc
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g
+AR = ar
+ARFLAGS = rcs
+CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -O2 -g
+INCLUDES = -I.
 
 BUILD = build
 LIB = libmonitor.a
@@ -18,7 +21,7 @@ DEPS = $(LIB_OBJS:.o=.d) $(SERVER_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d)
 all: $(LIB) $(BINARIOS)
 
 $(LIB): $(LIB_OBJS)
-	ar rcs $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 
 server: $(SERVER_OBJS) $(LIB)
 	$(CC) $(CFLAGS) -o $@ $(SERVER_OBJS) $(LIB)
@@ -27,7 +30,7 @@ client: $(CLIENT_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(CLIENT_OBJS)
 
 $(BUILD)/%.o: %.c | $(BUILD)
-	$(CC) $(CFLAGS) -I. -MMD -MP -c $< -o $@
+	$(CC) $(INCLUDES) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(BUILD):
 	mkdir -p $@
@@ -36,7 +39,7 @@ check: $(LIB) $(BUILD)/lib_check
 	./$(BUILD)/lib_check
 
 $(BUILD)/lib_check: tests/lib_check.c $(LIB) | $(BUILD)
-	$(CC) $(CFLAGS) -I. -o $@ $< $(LIB)
+	$(CC) $(INCLUDES) $(CFLAGS) -o $@ $< $(LIB)
 
 clean:
 	rm -rf $(BUILD) $(LIB) $(BINARIOS)
