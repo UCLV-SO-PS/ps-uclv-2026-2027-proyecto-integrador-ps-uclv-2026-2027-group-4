@@ -6,11 +6,11 @@ con un proceso hijo por conexión.
 
 ## Integrantes
 
-| Integrante | Parte del trabajo |
-| --- | --- |
-| Machado | Biblioteca `libmonitor.a` |
-| Felix | Protocolo cliente/servidor |
-| Hector Yanes | Concurrencia, señales y verificación |
+| Integrante | Parte del trabajo | Nota |
+| --- | --- | --- |
+| Machado | Biblioteca `libmonitor.a` | 5 |
+| Felix | Protocolo cliente/servidor | 5 |
+| Hector Yanes | Concurrencia, señales y verificación | 5 |
 
 ## Compilación
 
