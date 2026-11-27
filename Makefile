@@ -1,29 +1,45 @@
-# Makefile — libmonitor.a (G1) y binarios server/client (G2, felix-b-g2-protocolo.md)
-
 CC = gcc
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g
+AR = ar
+ARFLAGS = rcs
+CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -O2 -g
+INCLUDES = -I.
 
-OBJS = bd.o episodios.o formato.o
+BUILD = build
+LIB = libmonitor.a
+BINARIOS = server client
 
-all: libmonitor.a server client
-
-libmonitor.a: $(OBJS)
-	ar rcs $@ $(OBJS)
-
-server: server.o libmonitor.a
-	$(CC) $(CFLAGS) -o $@ server.o -L. -lmonitor
-
-client: client.o
-	$(CC) $(CFLAGS) -o $@ client.o
-
-%.o: %.c monitor.h
-	$(CC) $(CFLAGS) -c $< -o $@
-
-check: all
-	$(CC) $(CFLAGS) -I. -o tests/lib_check tests/lib_check.c libmonitor.a
-	./tests/lib_check
-
-clean:
-	rm -f *.o libmonitor.a server client tests/lib_check
+LIB_OBJS = $(BUILD)/bd.o $(BUILD)/episodios.o $(BUILD)/formato.o
+COMUNES_OBJS = $(BUILD)/protocolo.o
+SERVER_OBJS = $(BUILD)/server.o $(COMUNES_OBJS)
+CLIENT_OBJS = $(BUILD)/client.o $(COMUNES_OBJS)
+DEPS = $(sort $(LIB_OBJS:.o=.d) $(SERVER_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d))
 
 .PHONY: all check clean
+
+all: $(LIB) $(BINARIOS)
+
+$(LIB): $(LIB_OBJS)
+	$(AR) $(ARFLAGS) $@ $^
+
+server: $(SERVER_OBJS) $(LIB)
+	$(CC) $(CFLAGS) -o $@ $(SERVER_OBJS) $(LIB)
+
+client: $(CLIENT_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(CLIENT_OBJS)
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(INCLUDES) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD):
+	mkdir -p $@
+
+check: $(LIB) $(BUILD)/lib_check
+	./$(BUILD)/lib_check
+
+$(BUILD)/lib_check: tests/lib_check.c $(LIB) | $(BUILD)
+	$(CC) $(INCLUDES) $(CFLAGS) -o $@ $< $(LIB)
+
+clean:
+	rm -rf $(BUILD) $(LIB) $(BINARIOS)
+
+-include $(DEPS)

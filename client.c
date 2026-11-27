@@ -10,33 +10,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define PUERTO 6666
-#define LONGITUD_CODIGO 6
+#include "protocolo.h"
+
 #define TAM_LINEA 64
 #define TAM_LECTURA 256
-
-/* Escribe todo el buffer, reintentando en EINTR y cubriendo escrituras
-   parciales. Devuelve 0 si escribio todo, -1 en error. */
-static int write_all(int fd, const char *buf, size_t len)
-{
-    size_t enviado = 0;
-
-    while (enviado < len) {
-        ssize_t n = write(fd, buf + enviado, len - enviado);
-
-        if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return -1;
-        }
-        if (n == 0) {
-            return -1;
-        }
-        enviado += (size_t)n;
-    }
-    return 0;
-}
 
 static int conectar(void)
 {
@@ -63,14 +40,11 @@ static int conectar(void)
     return fd;
 }
 
-/* Envia el codigo y copia a stdout todo lo que responda el servidor
-   hasta EOF. Devuelve 0 si la conversacion termino bien, -1 en error. */
 static int consultar(const char *codigo)
 {
     int fd;
     char solicitud[LONGITUD_CODIGO + 2];
     char buf[TAM_LECTURA];
-    int ultimo = '\n';
 
     fd = conectar();
     if (fd < 0) {
@@ -78,14 +52,12 @@ static int consultar(const char *codigo)
     }
 
     snprintf(solicitud, sizeof solicitud, "%s\n", codigo);
-    if (write_all(fd, solicitud, strlen(solicitud)) < 0) {
+    if (enviar_todo(fd, solicitud, strlen(solicitud)) < 0) {
         perror("write");
         close(fd);
         return -1;
     }
 
-    /* El servidor ya tiene el codigo completo: avisamos el fin de nuestra
-       escritura para que no espere mas datos. */
     (void)shutdown(fd, SHUT_WR);
 
     for (;;) {
@@ -106,14 +78,9 @@ static int consultar(const char *codigo)
             close(fd);
             return -1;
         }
-        ultimo = (unsigned char)buf[n - 1];
     }
 
     close(fd);
-
-    if (ultimo != '\n') {
-        putchar('\n');
-    }
     fflush(stdout);
 
     return 0;

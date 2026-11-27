@@ -3,8 +3,6 @@
 
 #define BD_FILAS 6
 
-/* Tabla de la base de datos: static const, seis filas, en el orden del
-   documento, con los títulos tal cual aparecen en la referencia. */
 static const episodio_t bd[] = {
     { "S01E01", "The Hedge Knight", 9.2f, 45120u },
     { "S01E02", "Hard Salt Beef", 8.8f, 38900u },
@@ -43,8 +41,6 @@ int bd_validar(void)
     return 1;
 }
 
-/* Busca un episodio por código exacto (sensible a mayúsculas).
-   Devuelve NULL si el código es NULL, no mide 6 caracteres o no existe. */
 const episodio_t *bd_buscar_interno(const char *codigo)
 {
     size_t i;

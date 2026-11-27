@@ -15,4 +15,4 @@ int bd_validar(void);
 int formato_respuesta(const episodio_t *e, char *buf, size_t n);
 const char *formato_error(void);
 
-#endif /* MONITOR_H */
+#endif
