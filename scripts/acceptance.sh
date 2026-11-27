@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-#
-# scripts/acceptance.sh — verificación de aceptación del proyecto.
-#
-# Corre sobre el árbol actual los escenarios de la definición de terminado de
-# G4: build limpio, --test-run, consulta válida, código inválido, concurrencia
-# sin zombis, SIGINT ignorada, cliente que corta a mitad, puerto ocupado y
-# reinicio inmediato.
-#
-# Uso: scripts/acceptance.sh
-# Requisitos: bash, make, gcc, ar y coreutils. No necesita netcat.
-# Termina con 0 solo si todos los escenarios pasan.
 
 set -uo pipefail
 
@@ -24,9 +13,9 @@ SRV_PID=""
 total=0
 fallos=0
 
-ok()   { total=$((total + 1)); printf '  [OK]    %s\n' "$1"; }
-mal()  { total=$((total + 1)); fallos=$((fallos + 1)); printf '  [FALLA] %s\n' "$1"; }
-nota() { printf '          %s\n' "$1"; }
+ok()     { total=$((total + 1)); printf '  [OK]    %s\n' "$1"; }
+mal()    { total=$((total + 1)); fallos=$((fallos + 1)); printf '  [FALLA] %s\n' "$1"; }
+nota()   { printf '          %s\n' "$1"; }
 titulo() { printf '\n%s\n' "$1"; }
 
 detener_servidor() {
@@ -68,7 +57,6 @@ arrancar_servidor() {
     return 1
 }
 
-# Envía bytes crudos y devuelve todo lo que responda el servidor hasta EOF.
 crudo() {
     local datos="$1"
     exec 3<>"/dev/tcp/127.0.0.1/$PUERTO" || return 1
@@ -77,7 +65,6 @@ crudo() {
     exec 3<&- 3>&-
 }
 
-# Envía bytes crudos y cierra sin leer: simula un cliente que corta a mitad.
 crudo_y_corto() {
     local datos="$1"
     exec 3<>"/dev/tcp/127.0.0.1/$PUERTO" || return 1
@@ -85,8 +72,6 @@ crudo_y_corto() {
     exec 3<&- 3>&-
 }
 
-# Envía bytes crudos y guarda la respuesta tal cual, sin que el shell se coma
-# los saltos de línea finales.
 crudo_a_archivo() {
     local datos="$1" destino="$2"
     exec 3<>"/dev/tcp/127.0.0.1/$PUERTO" || return 1
@@ -95,7 +80,6 @@ crudo_a_archivo() {
     exec 3<&- 3>&-
 }
 
-# Imprime el último byte de un archivo con la notación de od, por ejemplo \n.
 ultimo_byte() {
     tail -c 1 "$1" 2>/dev/null | od -An -c | tr -d ' \n'
 }
@@ -114,7 +98,6 @@ contiene() {
     esac
 }
 
-# ---------------------------------------------------------------------------
 titulo "1) Build limpio"
 SALIDA="$(make clean 2>&1 && make all 2>&1)"
 RC=$?
@@ -155,7 +138,6 @@ if puerto_ocupado; then
     exit 1
 fi
 
-# ---------------------------------------------------------------------------
 titulo "2) Prueba automática (--test-run)"
 SALIDA="$(./server --test-run 2>&1)"
 RC=$?
@@ -165,7 +147,6 @@ else
     mal "--test-run termina con $RC: $SALIDA"
 fi
 
-# ---------------------------------------------------------------------------
 titulo "3) Consulta válida"
 if arrancar_servidor; then
     ok "el servidor arranca y escucha en el puerto $PUERTO"
@@ -222,7 +203,6 @@ else
     nota "$(cat "$LOG")"
 fi
 
-# ---------------------------------------------------------------------------
 titulo "4) Código inválido"
 RESPUESTA="$(./client S99E99)"
 if [ "$RESPUESTA" = "ERROR: episodio no encontrado" ]; then
@@ -246,7 +226,6 @@ else
     ok "./client S01E0 rechaza la longitud antes de enviar"
 fi
 
-# ---------------------------------------------------------------------------
 titulo "5) Concurrencia y cero zombis"
 ANTES="$(lineas_ip)"
 PIDS=()
@@ -281,7 +260,6 @@ else
     mal "el servidor dejó $Z hijos en estado zombi"
 fi
 
-# ---------------------------------------------------------------------------
 titulo "6) SIGINT ignorada"
 kill -INT "$SRV_PID" 2>/dev/null
 sleep 0.3
@@ -296,7 +274,6 @@ else
     mal "SIGINT terminó el servidor"
 fi
 
-# ---------------------------------------------------------------------------
 titulo "7) Cliente que corta a mitad"
 crudo_y_corto 'S01'
 crudo_y_corto ''
@@ -312,7 +289,6 @@ else
     mal "el servidor no atiende tras los cortes"
 fi
 
-# ---------------------------------------------------------------------------
 titulo "8) Puerto ocupado"
 SALIDA="$(./server --test-run 2>&1)"
 RC=$?
@@ -322,7 +298,6 @@ else
     mal "--test-run devuelve 0 con el puerto ocupado"
 fi
 
-# ---------------------------------------------------------------------------
 titulo "9) Reinicio inmediato"
 detener_servidor
 if arrancar_servidor; then
@@ -338,7 +313,6 @@ else
 fi
 detener_servidor
 
-# ---------------------------------------------------------------------------
 printf '\n'
 if [ "$fallos" -eq 0 ]; then
     printf 'Aceptación OK: %d comprobaciones.\n' "$total"

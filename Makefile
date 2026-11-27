@@ -1,6 +1,3 @@
-# Makefile — biblioteca estática, servidor y cliente
-# Uso: make | make check | make clean
-
 CC = gcc
 AR = ar
 ARFLAGS = rcs

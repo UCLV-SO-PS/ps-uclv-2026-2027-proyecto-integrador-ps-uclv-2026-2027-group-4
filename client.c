@@ -40,8 +40,6 @@ static int conectar(void)
     return fd;
 }
 
-/* Envia el codigo y copia a stdout todo lo que responda el servidor
-   hasta EOF. Devuelve 0 si la conversacion termino bien, -1 en error. */
 static int consultar(const char *codigo)
 {
     int fd;
@@ -60,8 +58,6 @@ static int consultar(const char *codigo)
         return -1;
     }
 
-    /* El servidor ya tiene el codigo completo: avisamos el fin de nuestra
-       escritura para que no espere mas datos. */
     (void)shutdown(fd, SHUT_WR);
 
     for (;;) {

@@ -16,9 +16,6 @@ int enviar_todo(int fd, const char *buf, size_t len)
             if (errno == EINTR) {
                 continue;
             }
-            /* Con SIGPIPE ignorada, un cliente que corta antes de leer se
-               manifiesta como EPIPE: es el cierre normal de la conversacion,
-               no un error del servidor. */
             return -1;
         }
         if (n == 0) {

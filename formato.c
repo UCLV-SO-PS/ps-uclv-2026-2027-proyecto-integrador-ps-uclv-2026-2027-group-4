@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include "monitor.h"
 
-/* Formatea los votos con separador de miles: 45120 -> "45,120". */
 static void formatear_votos(unsigned votos, char *buf, size_t n)
 {
     char dig[16];
